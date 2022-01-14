@@ -84,4 +84,104 @@ train_df <- penguins_fold %>%
   filter(group !=1)
 ```
 
+## RMSE Root-mean square error, go in reverse order of these operations 
+- find error (predicted - actual), square it, find the average, then take the square root
+
+```{r root mean square error}
+calc_rmse <- function(x,y) {
+  rmse_result <- (x-y)^2 %>%  mean () %>%  sqrt()
+  return(rmse_result)
+}
+```
+
+## Use the training dataset to creat three linear regression models
+- Based on the formula above
+
+```{r}
+#only basing on 299 observations (training)
+training_mdl1 <- lm(f1, data = train_df)
+training_mdl2 <- lm(f2, data = train_df)
+training_mdl3 <- lm(f3, data = train_df)
+```
+
+## Used trained models to predict on test data
+```{r}
+#this is adding columns for the penguin mass output according to each of the models,
+#so in the predict_test output, there is three more columns, one for each model
+predict_test <- test_df %>% 
+  mutate(model1 = predict(training_mdl1, test_df),
+         model2 = predict(training_mdl2, test_df),
+         model3 = predict(training_mdl3, test_df))
+
+rmse_predict_test <- predict_test %>% 
+  summarize(rmse_mdl1 = calc_rmse(model1, mass),
+            rmse_mdl2 = calc_rmse(model2, mass),
+            rmse_mdl3 = calc_rmse(model3,mass))
+
+rmse_predict_test
+
+#  rmse_mdl1 rmse_mdl2 rmse_mdl3
+#      <dbl>     <dbl>     <dbl>
+#1      326.      319.      326.
+
+#We see from the results that the models are close, but model 2 is performing best, then model 1 and 3
+```
+
+## Let's calculate over all folds and take the average
+```{r}
+rmse_df <- data.frame()
+
+#running through each of the groups starting with 1, then 2, then 3, etc.
+
+#to review: for i = 1, it is going to go through group 1 as the test set and groups 2-10 as the training set, it will train models on 2-10, test models against group 1, then summarize all the observations in group 1 to RMSE, then take that RMSE output into the blank dataframe that we created
+
+#then it will go to fold 2, then go through fold 3, etc.
+
+for(i in 1:folds) {
+  kfold_test_df <- penguins_fold %>% 
+    filter(group == i)
+  kfold_train_df <- penguins_fold %>% 
+    filter(group !=i)
+  
+  kfold_mdl1 <- lm(f1, data = kfold_train_df)
+  kfold_mdl2 <- lm(f2, data = kfold_train_df)
+  kfold_mdl3 <- lm(f3, data = kfold_train_df)
+  
+  kfold_pred_df <- kfold_test_df %>% 
+    mutate(mdl1 = predict(kfold_mdl1, kfold_test_df),
+           mdl2 = predict(kfold_mdl2, .),
+           mdl3 = predict(kfold_mdl3, .))
+  kfold_rmse <- kfold_pred_df %>% 
+    summarize(rmse_mdl1 = calc_rmse(mdl1,mass),
+              rmse_mdl2 = calc_rmse(mdl2, mass),
+              rmse_mdl3 = calc_rmse(mdl3, mass))
+  
+  #everytime it goes through the loop it will add a new row with outputs
+  rmse_df <- bind_rows(rmse_df, kfold_rmse)
+}
+
+
+#we dont want to compare within each of the folds, we want to compare overall
+
+rmse_df %>% 
+  summarize(mean_rmse_mdl1 = mean(rmse_mdl1),
+            mean_rmse_mdl2 = mean(rmse_mdl2),
+            mean_rmse_mdl3 = mean(rmse_mdl3))
+
+# model 1= 289.7196	model 2 =287.8213	model3= 292.0715	
+#So it looks like model 2 has the lowest RMSE (error)
+```
+
+# Once we've chosen the model via cross-validation:
+
+```{r}
+final_mld <- lm(f2, data = penguins_clean)
+summary(final_mld)
+```
+
+Out final model:
+`r equatiomatic::extract_eq(final_mld, wrap = TRUE)`
+
+And with numbers:
+`r equatiomatic::extract_eq(final_mld, wrap = TRUE, use_coefs = TRUE)`
 

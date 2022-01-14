@@ -206,9 +206,184 @@ mdl2 &lt;- lm(f2, data = penguins_clean)
 
 f3 &lt;- mass ~ bill_l + flip_l + species + sex
 mdl3 &lt;- lm(f3, data = penguins_clean)</code></pre>
-<div id="lets-figure-out-which-model-is-performing-the-best" class="section level2">
-<h2>Let’s figure out which model is performing the best</h2>
+<div id="lets-use-aic-to-compare-and-determine-best-model" class="section level2">
+<h2>Let’s use AIC to compare and determine best model</h2>
+<ul>
+<li>Looking at the Adjusted R^2 value they are all around 87%</li>
+<li>Use the AIC function (need to be difference by at least 2 to consider one better than another)</li>
+<li>In the results summary table, we are looking at model 2 as being the best, next best model is model1 which is ~3.5 lower than that, model 3 is not significantly better than model 1 (difference is less than 2)</li>
+</ul>
+<pre class="r"><code>AIC(mdl1, mdl2, mdl3)</code></pre>
+<pre><code>##      df      AIC
+## mdl1 10 4727.242
+## mdl2  8 4723.938
+## mdl3  7 4733.574</code></pre>
+<pre class="r"><code>#This is the AIC correction
+AICcmodavg::AICc(mdl1) #4727.925</code></pre>
+<pre><code>## [1] 4727.925</code></pre>
+<pre class="r"><code>#this gives us a model summary and ranks them in order of preference
+AICcmodavg::aictab(list(mdl1, mdl2, mdl3))</code></pre>
+<pre><code>## 
+## Model selection based on AICc:
+## 
+##       K    AICc Delta_AICc AICcWt Cum.Wt       LL
+## Mod2  8 4724.38       0.00   0.85   0.85 -2353.97
+## Mod1 10 4727.93       3.54   0.14   0.99 -2353.62
+## Mod3  7 4733.92       9.54   0.01   1.00 -2359.79</code></pre>
 </div>
+</div>
+<div id="k-fold-cross-validation" class="section level1">
+<h1>K-fold cross validation</h1>
+<ul>
+<li>Cross validation allows us to hold out a set of data (train:test split)</li>
+</ul>
+<pre class="r"><code>folds &lt;- 10
+fold_vec &lt;- rep(1:folds, length.out = nrow(penguins_clean))
+table(fold_vec)</code></pre>
+<pre><code>## fold_vec
+##  1  2  3  4  5  6  7  8  9 10 
+## 34 34 34 33 33 33 33 33 33 33</code></pre>
+<pre class="r"><code>set.seed(42)
+
+#this is pulling apart the dataset so we can do a train test split, in this case the test dataframe is 34 objects, the train dataframe is 299 objects
+penguins_fold &lt;- penguins_clean %&gt;% 
+  mutate(group = sample(fold_vec, size = n(), replace = FALSE))
+
+### First fold
+test_df &lt;- penguins_fold %&gt;% 
+  filter(group == 1)
+train_df &lt;- penguins_fold %&gt;% 
+  filter(group !=1)</code></pre>
+<div id="rmse-root-mean-square-error-go-in-reverse-order-of-these-operations" class="section level2">
+<h2>RMSE Root-mean square error, go in reverse order of these operations</h2>
+<ul>
+<li>find error (predicted - actual), square it, find the average, then take the square root</li>
+</ul>
+<pre class="r"><code>calc_rmse &lt;- function(x,y) {
+  rmse_result &lt;- (x-y)^2 %&gt;%  mean () %&gt;%  sqrt()
+  return(rmse_result)
+}</code></pre>
+</div>
+<div id="use-the-training-dataset-to-creat-three-linear-regression-models" class="section level2">
+<h2>Use the training dataset to creat three linear regression models</h2>
+<ul>
+<li>Based on the formula above</li>
+</ul>
+<pre class="r"><code>#only basing on 299 observations (training)
+training_mdl1 &lt;- lm(f1, data = train_df)
+training_mdl2 &lt;- lm(f2, data = train_df)
+training_mdl3 &lt;- lm(f3, data = train_df)</code></pre>
+</div>
+<div id="used-trained-models-to-predict-on-test-data" class="section level2">
+<h2>Used trained models to predict on test data</h2>
+<pre class="r"><code>#this is adding columns for the penguin mass output according to each of the models,
+#so in the predict_test output, there is three more columns, one for each model
+predict_test &lt;- test_df %&gt;% 
+  mutate(model1 = predict(training_mdl1, test_df),
+         model2 = predict(training_mdl2, test_df),
+         model3 = predict(training_mdl3, test_df))
+
+rmse_predict_test &lt;- predict_test %&gt;% 
+  summarize(rmse_mdl1 = calc_rmse(model1, mass),
+            rmse_mdl2 = calc_rmse(model2, mass),
+            rmse_mdl3 = calc_rmse(model3,mass))
+
+rmse_predict_test</code></pre>
+<pre><code>## # A tibble: 1 × 3
+##   rmse_mdl1 rmse_mdl2 rmse_mdl3
+##       &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+## 1      326.      319.      326.</code></pre>
+<pre class="r"><code>#  rmse_mdl1 rmse_mdl2 rmse_mdl3
+#      &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+#1      326.      319.      326.
+
+#We see from the results that the models are close, but model 2 is performing best, then model 1 and 3</code></pre>
+</div>
+<div id="lets-calculate-over-all-folds-and-take-the-average" class="section level2">
+<h2>Let’s calculate over all folds and take the average</h2>
+<pre class="r"><code>rmse_df &lt;- data.frame()
+
+#running through each of the groups starting with 1, then 2, then 3, etc.
+
+#to review: for i = 1, it is going to go through group 1 as the test set and groups 2-10 as the training set, it will train models on 2-10, test models against group 1, then summarize all the observations in group 1 to RMSE, then take that RMSE output into the blank dataframe that we created
+
+#then it will go to fold 2, then go through fold 3, etc.
+
+for(i in 1:folds) {
+  kfold_test_df &lt;- penguins_fold %&gt;% 
+    filter(group == i)
+  kfold_train_df &lt;- penguins_fold %&gt;% 
+    filter(group !=i)
+  
+  kfold_mdl1 &lt;- lm(f1, data = kfold_train_df)
+  kfold_mdl2 &lt;- lm(f2, data = kfold_train_df)
+  kfold_mdl3 &lt;- lm(f3, data = kfold_train_df)
+  
+  kfold_pred_df &lt;- kfold_test_df %&gt;% 
+    mutate(mdl1 = predict(kfold_mdl1, kfold_test_df),
+           mdl2 = predict(kfold_mdl2, .),
+           mdl3 = predict(kfold_mdl3, .))
+  kfold_rmse &lt;- kfold_pred_df %&gt;% 
+    summarize(rmse_mdl1 = calc_rmse(mdl1,mass),
+              rmse_mdl2 = calc_rmse(mdl2, mass),
+              rmse_mdl3 = calc_rmse(mdl3, mass))
+  
+  #everytime it goes through the loop it will add a new row with outputs
+  rmse_df &lt;- bind_rows(rmse_df, kfold_rmse)
+}
+
+
+#we dont want to compare within each of the folds, we want to compare overall
+
+rmse_df %&gt;% 
+  summarize(mean_rmse_mdl1 = mean(rmse_mdl1),
+            mean_rmse_mdl2 = mean(rmse_mdl2),
+            mean_rmse_mdl3 = mean(rmse_mdl3))</code></pre>
+<pre><code>##   mean_rmse_mdl1 mean_rmse_mdl2 mean_rmse_mdl3
+## 1       289.7196       287.8213       292.0715</code></pre>
+<pre class="r"><code># model 1= 289.7196 model 2 =287.8213   model3= 292.0715    
+#So it looks like model 2 has the lowest RMSE (error)</code></pre>
+</div>
+</div>
+<div id="once-weve-chosen-the-model-via-cross-validation" class="section level1">
+<h1>Once we’ve chosen the model via cross-validation:</h1>
+<pre class="r"><code>final_mld &lt;- lm(f2, data = penguins_clean)
+summary(final_mld)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = f2, data = penguins_clean)
+## 
+## Residuals:
+##     Min      1Q  Median      3Q     Max 
+## -779.65 -173.18   -9.05  186.61  914.11 
+## 
+## Coefficients:
+##                   Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)      -1460.995    571.308  -2.557 0.011002 *  
+## bill_l              18.204      7.106   2.562 0.010864 *  
+## bill_d              67.218     19.742   3.405 0.000745 ***
+## flip_l              15.950      2.910   5.482 8.44e-08 ***
+## speciesChinstrap  -251.477     81.079  -3.102 0.002093 ** 
+## speciesGentoo     1014.627    129.561   7.831 6.85e-14 ***
+## sexmale            389.892     47.848   8.148 7.97e-15 ***
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 287.3 on 326 degrees of freedom
+## Multiple R-squared:  0.875,  Adjusted R-squared:  0.8727 
+## F-statistic: 380.2 on 6 and 326 DF,  p-value: &lt; 2.2e-16</code></pre>
+<p>Out final model: <span class="math display">\[
+\begin{aligned}
+\operatorname{mass} &amp;= \alpha + \beta_{1}(\operatorname{bill\_l}) + \beta_{2}(\operatorname{bill\_d}) + \beta_{3}(\operatorname{flip\_l})\ + \\
+&amp;\quad \beta_{4}(\operatorname{species}_{\operatorname{Chinstrap}}) + \beta_{5}(\operatorname{species}_{\operatorname{Gentoo}}) + \beta_{6}(\operatorname{sex}_{\operatorname{male}}) + \epsilon
+\end{aligned}
+\]</span></p>
+<p>And with numbers: <span class="math display">\[
+\begin{aligned}
+\operatorname{\widehat{mass}} &amp;= -1460.99 + 18.2(\operatorname{bill\_l}) + 67.22(\operatorname{bill\_d}) + 15.95(\operatorname{flip\_l})\ - \\
+&amp;\quad 251.48(\operatorname{species}_{\operatorname{Chinstrap}}) + 1014.63(\operatorname{species}_{\operatorname{Gentoo}}) + 389.89(\operatorname{sex}_{\operatorname{male}})
+\end{aligned}
+\]</span></p>
 </div>
 
 
